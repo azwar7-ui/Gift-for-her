@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Fireworks Generator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            overflow: hidden;
+            margin: 0;
+            cursor: crosshair;
+            background-color: #050510;
+            font-family: 'Inter', sans-serif;
+        }
+        canvas {
+            display: block;
+            touch-action: none;
+        }
+        #message-box {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 8px 16px;
+            background: rgba(4, 5, 25, 0.9);
+            color: #ccc;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+            font-size: 14px;
+            transition: opacity 0.5s;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="fireworksCanvas"></canvas>
+    <div id="message-box">Click or Tap Anywhere to Launch Fireworks 🎆</div>
+
+    <script>
+        const canvas = document.getElementById('fireworksCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const GRAVITY = 0.03;
+        const PARTICLE_DRAG = 0.96;
+        const EXPLOSION_PARTICLES = 120;
+        const MAX_FIREWORKS = 15;
+        const AUTO_FIRE_INTERVAL = 800;
+        const MAX_PARTICLES = 3000;
+
+        let fireworks = [];
+        let particles = [];
+        let animationFrameId = null;
+        let userInteracted = false;
+
+        function getRandomColor() {
+            const h = Math.random() * 360;
+            return `hsl(${h}, 90%, 60%)`;
+        }
+
+        class Particle {
+            constructor(x, y, color, velocity) {
+                this.x = x;
+                this.y = y;
+                this.velocity = velocity;
+                this.color = color;
+                this.radius = 1.5;
+                this.alpha = 1;
+                this.life = 100;
+            }
+
+            update() {
+                this.velocity.x *= PARTICLE_DRAG;
+                this.velocity.y *= PARTICLE_DRAG;
+                this.velocity.y += GRAVITY;
+                this.x += this.velocity.x;
+                this.y += this.velocity.y;
+                this.alpha -= 0.01;
+                this.life--;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = Math.max(0, this.alpha);
+                ctx.shadowColor = this.color;
+                ctx.shadowBlur = 10;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+                ctx.restore();
+            }
+
+            isDead() {
+                return this.alpha <= 0 || this.life <= 0;
+            }
+        }
+
+        class Firework {
+            constructor(startX, startY, targetX, targetY) {
+                this.x = startX;
+                this.y = startY;
+                this.targetY = targetY;
+                this.color = getRandomColor();
+                this.isExploded = false;
+                const travelDistance = startY - targetY;
+                this.velocity = {
+                    x: (targetX - startX) / 100,
+                    y: -Math.sqrt(2 * GRAVITY * travelDistance) * 0.95
+                };
+            }
+
+            update() {
+                if (this.isExploded) return;
+
+                if (this.velocity.y >= 0 || this.y <= this.targetY) {
+                    this.explode();
+                    return;
+                }
+
+                this.velocity.y += GRAVITY * 0.7;
+                this.x += this.velocity.x;
+                this.y += this.velocity.y;
+            }
+
+            draw() {
+                if (this.isExploded) return;
+
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, 2, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+
+                // Sparkle tail
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y + 5);
+                ctx.lineTo(this.x, this.y + 25);
+                ctx.strokeStyle = this.color;
+                ctx.lineWidth = 1;
+                ctx.globalAlpha = 0.5;
+                ctx.stroke();
+                ctx.globalAlpha = 1;
+            }
+
+            explode() {
+                this.isExploded = true;
+                const explosionColor = this.color;
+
+                for (let i = 0; i < EXPLOSION_PARTICLES; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const speed = Math.random() * 4 + 0.5;
+                    const velocity = {
+                        x: Math.cos(angle) * speed,
+                        y: Math.sin(angle) * speed
+                    };
+                    particles.push(new Particle(this.x, this.y, explosionColor, velocity));
+                }
+            }
+
+            isDead() {
+                return this.isExploded;
+            }
+        }
+
+        function loop() {
+            ctx.fillStyle = 'rgba(5, 5, 16, 0.15)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            for (let i = fireworks.length - 1; i >= 0; i--) {
+                const fw = fireworks[i];
+                fw.update();
+                fw.draw();
+                if (fw.isDead()) fireworks.splice(i, 1);
+            }
+
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.update();
+                p.draw();
+                if (p.isDead()) particles.splice(i, 1);
+            }
+
+            // Prevent lag from too many particles
+            if (particles.length > MAX_PARTICLES) particles.splice(0, 500);
+
+            animationFrameId = requestAnimationFrame(loop);
+        }
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        function launchFirework(e) {
+            const clientX = e.clientX || e.touches[0].clientX;
+            const clientY = e.clientY || e.touches[0].clientY;
+            const targetX = clientX;
+            const targetY = clientY;
+            const startX = Math.random() * canvas.width;
+            const startY = canvas.height;
+
+            if (fireworks.length < MAX_FIREWORKS) {
+                fireworks.push(new Firework(startX, startY, targetX, targetY));
+                document.getElementById('message-box').style.opacity = '0';
+            }
+
+            userInteracted = true;
+        }
+
+        function autoFire() {
+            if (!userInteracted && fireworks.length < MAX_FIREWORKS / 2) {
+                const x = Math.random() * canvas.width;
+                const y = Math.random() * canvas.height * 0.4;
+                fireworks.push(new Firework(Math.random() * canvas.width, canvas.height, x, y));
+            }
+        }
+
+        function init() {
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+            canvas.addEventListener('click', launchFirework);
+            canvas.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                launchFirework(e);
+            });
+
+            loop();
+            setInterval(autoFire, AUTO_FIRE_INTERVAL);
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>
